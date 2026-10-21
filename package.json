@@ -1,0 +1,14 @@
+{
+  "name": "nexus-api-gateway",
+  "version": "1.0.0",
+  "description": "High-performance API Gateway with proxy routing algorithms, load balancing, and rate limiting",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
