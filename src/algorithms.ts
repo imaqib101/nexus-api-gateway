@@ -146,3 +146,80 @@ export class LatencyBasedBalancer {
     return bestTarget;
   }
 }
+
+/**
+ * Power of Two Random Choices (P2C) Balancer.
+ * Samples two random targets and selects the one with lower active connections,
+ * mitigating herd behavior in high-throughput microservices.
+ */
+export class PowerOfTwoChoicesBalancer {
+  select(targets: string[], activeConnections: Map<string, number>): string {
+    if (targets.length === 0) throw new Error("No healthy targets available");
+    if (targets.length === 1) return targets[0];
+
+    const idxA = Math.floor(Math.random() * targets.length);
+    let idxB = Math.floor(Math.random() * (targets.length - 1));
+    if (idxB >= idxA) idxB++;
+
+    const targetA = targets[idxA];
+    const targetB = targets[idxB];
+
+    const loadA = activeConnections.get(targetA) ?? 0;
+    const loadB = activeConnections.get(targetB) ?? 0;
+
+    return loadA <= loadB ? targetA : targetB;
+  }
+}
+
+export interface CanaryConfig {
+  stableTarget: string;
+  canaryTarget: string;
+  canaryWeightPercent?: number; // 0 to 100
+  canaryHeaderKey?: string;
+  canaryHeaderValue?: string;
+}
+
+/**
+ * Canary Routing Balancer.
+ * Directs traffic based on canary header matches or deterministic hash partitioning.
+ */
+export class CanaryRoutingBalancer {
+  constructor(public readonly config: CanaryConfig) {}
+
+  private hashKey(str: string): number {
+    let hash = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = (hash * 16777619) >>> 0;
+    }
+    return hash;
+  }
+
+  select(options?: { headers?: Record<string, string | string[] | undefined>; clientKey?: string }): string {
+    const { config } = this;
+    const headerKey = (config.canaryHeaderKey ?? "x-canary").toLowerCase();
+    const expectedValue = config.canaryHeaderValue ?? "true";
+
+    // 1. Check explicit header override
+    if (options?.headers) {
+      const headerVal = options.headers[headerKey];
+      if (headerVal === expectedValue || (Array.isArray(headerVal) && headerVal.includes(expectedValue))) {
+        return config.canaryTarget;
+      }
+    }
+
+    const weight = Math.max(0, Math.min(100, config.canaryWeightPercent ?? 10));
+    if (weight === 0) return config.stableTarget;
+    if (weight === 100) return config.canaryTarget;
+
+    // 2. Deterministic client hash partitioning
+    if (options?.clientKey) {
+      const hash = this.hashKey(options.clientKey);
+      const bucket = hash % 100;
+      return bucket < weight ? config.canaryTarget : config.stableTarget;
+    }
+
+    // 3. Probabilistic selection
+    return Math.random() * 100 < weight ? config.canaryTarget : config.stableTarget;
+  }
+}

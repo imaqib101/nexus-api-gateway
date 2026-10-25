@@ -6,7 +6,9 @@ import {
   WeightedRoundRobinBalancer,
   LeastConnectionsBalancer,
   ConsistentHashBalancer,
-  LatencyBasedBalancer
+  LatencyBasedBalancer,
+  PowerOfTwoChoicesBalancer,
+  CanaryRoutingBalancer
 } from "./algorithms";
 import { TokenBucketRateLimiter, type RateLimitConfig } from "./rateLimiter";
 
@@ -15,7 +17,9 @@ export type RoutingStrategy =
   | "least-connections"
   | "weighted-round-robin"
   | "ip-hash"
-  | "latency-based";
+  | "latency-based"
+  | "p2c"
+  | "canary";
 
 export interface RouteRule {
   pathPrefix: string;
@@ -23,11 +27,14 @@ export interface RouteRule {
   strategy?: RoutingStrategy;
   rateLimit?: RateLimitConfig;
   stripPrefix?: boolean;
+  canaryPercent?: number;
+  canaryHeaderKey?: string;
 }
 
 export interface RouteRequestOptions {
   clientIp?: string;
   sessionKey?: string;
+  headers?: Record<string, string | string[] | undefined>;
 }
 
 export class NexusGateway {
@@ -41,6 +48,8 @@ export class NexusGateway {
   private leastConnBalancer = new LeastConnectionsBalancer();
   private hashBalancers = new Map<string, ConsistentHashBalancer>();
   private latencyBalancer = new LatencyBasedBalancer();
+  private p2cBalancer = new PowerOfTwoChoicesBalancer();
+  private canaryBalancers = new Map<string, CanaryRoutingBalancer>();
   private rateLimiters = new Map<string, TokenBucketRateLimiter>();
 
   addRoute(rule: RouteRule) {
@@ -156,6 +165,32 @@ export class NexusGateway {
           healthyTargets.map((t) => t.url),
           this.latenciesEma
         );
+      }
+
+      case "p2c": {
+        return this.p2cBalancer.select(
+          healthyTargets.map((t) => t.url),
+          this.activeConnections
+        );
+      }
+
+      case "canary": {
+        let balancer = this.canaryBalancers.get(route.pathPrefix);
+        if (!balancer) {
+          const stable = healthyTargets[0].url;
+          const canary = healthyTargets.length > 1 ? healthyTargets[1].url : stable;
+          balancer = new CanaryRoutingBalancer({
+            stableTarget: stable,
+            canaryTarget: canary,
+            canaryWeightPercent: route.canaryPercent ?? 10,
+            canaryHeaderKey: route.canaryHeaderKey ?? "x-canary"
+          });
+          this.canaryBalancers.set(route.pathPrefix, balancer);
+        }
+        return balancer.select({
+          headers: options.headers,
+          clientKey: options.clientIp || options.sessionKey
+        });
       }
 
       case "round-robin":
