@@ -7,11 +7,40 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "start": "node dist/cli.js --config examples/gateway.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@vitest/coverage-v8": "^1.6.1",
     "typescript": "^5.3.3",
     "vitest": "^1.1.0"
-  }
+  },
+  "bin": {
+    "nexus-gateway": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "author": "Mohammed Aqib <imaqib101@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imaqib101/nexus-api-gateway.git"
+  },
+  "keywords": [
+    "api-gateway",
+    "reverse-proxy",
+    "load-balancer",
+    "rate-limiter",
+    "circuit-breaker",
+    "typescript"
+  ]
 }
