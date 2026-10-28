@@ -4,4 +4,5 @@ export * from "./gateway";
 export * from "./circuitBreaker";
 export * from "./proxy";
 export * from "./metrics";
+export * from "./config";
 export * from "./healthChecker";
