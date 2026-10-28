@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { NexusGateway } from "../src/gateway";
-import { PowerOfTwoChoicesBalancer, CanaryRoutingBalancer } from "../src/algorithms";
 
 describe("NexusGateway & Routing Integration", () => {
   let serverA: http.Server;
@@ -18,7 +18,7 @@ describe("NexusGateway & Routing Integration", () => {
         res.end(JSON.stringify({ backend: "server-a", path: req.url }));
       });
       serverA.listen(0, "127.0.0.1", () => {
-        const addr = serverA.address() as any;
+        const addr = serverA.address() as AddressInfo;
         urlA = `http://127.0.0.1:${addr.port}`;
         resolve();
       });
@@ -32,7 +32,7 @@ describe("NexusGateway & Routing Integration", () => {
         res.end(JSON.stringify({ backend: "server-b", path: req.url }));
       });
       serverB.listen(0, "127.0.0.1", () => {
-        const addr = serverB.address() as any;
+        const addr = serverB.address() as AddressInfo;
         urlB = `http://127.0.0.1:${addr.port}`;
         resolve();
       });
@@ -41,8 +41,8 @@ describe("NexusGateway & Routing Integration", () => {
 
   afterAll(async () => {
     await Promise.all([
-      new Promise<any>((resolve) => serverA.close(resolve)),
-      new Promise<any>((resolve) => serverB.close(resolve))
+      new Promise<void>((resolve) => serverA.close(resolve)),
+      new Promise<void>((resolve) => serverB.close(resolve)),
     ]);
   });
 
@@ -51,7 +51,7 @@ describe("NexusGateway & Routing Integration", () => {
     gateway.addRoute({
       pathPrefix: "/api/users",
       targets: [urlA, urlB],
-      strategy: "round-robin"
+      strategy: "round-robin",
     });
 
     const target1 = gateway.routeRequest("/api/users/123");
@@ -68,7 +68,7 @@ describe("NexusGateway & Routing Integration", () => {
       targets: [urlA, urlB], // urlA is stable, urlB is canary
       strategy: "canary",
       canaryPercent: 0, // 0% by default, only explicit header
-      canaryHeaderKey: "x-canary"
+      canaryHeaderKey: "x-canary",
     });
 
     // Normal traffic -> Stable (urlA)
@@ -77,7 +77,7 @@ describe("NexusGateway & Routing Integration", () => {
 
     // Canary traffic with header -> Canary (urlB)
     const canary = gateway.routeRequest("/v2/checkout", {
-      headers: { "x-canary": "true" }
+      headers: { "x-canary": "true" },
     });
     expect(canary).toBe(urlB);
   });
@@ -87,7 +87,7 @@ describe("NexusGateway & Routing Integration", () => {
     gateway.addRoute({
       pathPrefix: "/services",
       targets: [urlA, urlB],
-      strategy: "p2c"
+      strategy: "p2c",
     });
 
     gateway.incrementActiveConnections(urlA);
@@ -107,7 +107,7 @@ describe("NexusGateway & Routing Integration", () => {
     gateway.addRoute({
       pathPrefix: "/payments",
       targets: [urlA, urlB],
-      strategy: "round-robin"
+      strategy: "round-robin",
     });
 
     gateway.markTargetUnhealthy(urlA);
@@ -126,14 +126,14 @@ describe("NexusGateway & Routing Integration", () => {
       targets: [urlA],
       rateLimit: {
         capacity: 2,
-        refillRatePerSec: 1
-      }
+        refillRatePerSec: 1,
+      },
     });
 
     expect(gateway.routeRequest("/throttled/1", { clientIp: "10.0.0.1" })).toBe(urlA);
     expect(gateway.routeRequest("/throttled/2", { clientIp: "10.0.0.1" })).toBe(urlA);
-    expect(() =>
-      gateway.routeRequest("/throttled/3", { clientIp: "10.0.0.1" })
-    ).toThrow(/Rate limit exceeded/);
+    expect(() => gateway.routeRequest("/throttled/3", { clientIp: "10.0.0.1" })).toThrow(
+      /Rate limit exceeded/,
+    );
   });
 });

@@ -45,15 +45,15 @@ Incoming HTTP / WebSocket Traffic
 
 ## ⚙️ Load Balancing Strategies
 
-| Strategy | Flag | Behavior & Use Case |
-| :--- | :--- | :--- |
-| **Weighted Round-Robin** | `weighted-round-robin` | Smooth interleaved distribution based on backend server capacity/weight |
-| **Least Connections** | `least-connections` | Real-time active connection tracking, routing to least loaded node |
-| **Consistent Hashing** | `ip-hash` | Ring hashing with 100 virtual replicas per node for cache & WebSocket affinity |
-| **Latency-Aware** | `latency-based` | Exponential moving average (EMA, α=0.3) targeting lowest response latency |
-| **Round-Robin** | `round-robin` | Sequential distribution across healthy targets |
-| **Power of Two Choices** | `p2c` | Samples two healthy nodes, picks the one with fewer active connections |
-| **Canary** | `canary` | Sends a configurable percentage (or `x-canary` header traffic) to the second target |
+| Strategy                 | Flag                   | Behavior & Use Case                                                                 |
+| :----------------------- | :--------------------- | :---------------------------------------------------------------------------------- |
+| **Weighted Round-Robin** | `weighted-round-robin` | Smooth interleaved distribution based on backend server capacity/weight             |
+| **Least Connections**    | `least-connections`    | Real-time active connection tracking, routing to least loaded node                  |
+| **Consistent Hashing**   | `ip-hash`              | Ring hashing with 100 virtual replicas per node for cache & WebSocket affinity      |
+| **Latency-Aware**        | `latency-based`        | Exponential moving average (EMA, α=0.3) targeting lowest response latency           |
+| **Round-Robin**          | `round-robin`          | Sequential distribution across healthy targets                                      |
+| **Power of Two Choices** | `p2c`                  | Samples two healthy nodes, picks the one with fewer active connections              |
+| **Canary**               | `canary`               | Sends a configurable percentage (or `x-canary` header traffic) to the second target |
 
 ---
 
@@ -69,18 +69,18 @@ gateway.addRoute({
   pathPrefix: "/api/v1/inference",
   targets: [
     { url: "http://gpu-cluster-a:8080", weight: 3 },
-    { url: "http://gpu-cluster-b:8080", weight: 1 }
+    { url: "http://gpu-cluster-b:8080", weight: 1 },
   ],
   strategy: "weighted-round-robin",
   rateLimit: {
     capacity: 100, // max burst tokens
-    refillRatePerSec: 20 // refill rate
-  }
+    refillRatePerSec: 20, // refill rate
+  },
 });
 
 // Real-time routing decision
 const backend = gateway.routeRequest("/api/v1/inference/generate", {
-  clientIp: "203.0.113.195"
+  clientIp: "203.0.113.195",
 });
 console.log(`Routed to: ${backend}`);
 ```
@@ -113,21 +113,29 @@ node dist/cli.js --config examples/gateway.json
 import { NexusGateway, ProxyServer, HealthChecker } from "nexus-api-gateway";
 
 const gateway = new NexusGateway();
-gateway.addRoute({ pathPrefix: "/api", targets: ["http://app-1:3000", "http://app-2:3000"], stripPrefix: true });
+gateway.addRoute({
+  pathPrefix: "/api",
+  targets: ["http://app-1:3000", "http://app-2:3000"],
+  stripPrefix: true,
+});
 
-const proxy = new ProxyServer({ gateway, requestTimeoutMs: 15_000, breaker: { failureThreshold: 5, resetTimeoutMs: 30_000 } });
+const proxy = new ProxyServer({
+  gateway,
+  requestTimeoutMs: 15_000,
+  breaker: { failureThreshold: 5, resetTimeoutMs: 30_000 },
+});
 await proxy.listen(8080);
 new HealthChecker({ gateway, path: "/health" }).start();
 ```
 
-| Condition | Response |
-| :--- | :--- |
-| No matching route | `404 NO_ROUTE` |
-| Rate limit hit | `429 RATE_LIMITED` + `Retry-After` |
-| All targets ejected | `503 NO_HEALTHY_TARGET` |
-| Target circuit open | `503 CIRCUIT_OPEN` |
-| Upstream unreachable | `502 BAD_GATEWAY` |
-| Upstream timeout | `504 UPSTREAM_TIMEOUT` |
+| Condition            | Response                           |
+| :------------------- | :--------------------------------- |
+| No matching route    | `404 NO_ROUTE`                     |
+| Rate limit hit       | `429 RATE_LIMITED` + `Retry-After` |
+| All targets ejected  | `503 NO_HEALTHY_TARGET`            |
+| Target circuit open  | `503 CIRCUIT_OPEN`                 |
+| Upstream unreachable | `502 BAD_GATEWAY`                  |
+| Upstream timeout     | `504 UPSTREAM_TIMEOUT`             |
 
 Routing uses **longest-prefix match** on path segment boundaries, so `/api/v1/inference` wins over `/api`, and `/apiary` does not match `/api`.
 
@@ -146,5 +154,6 @@ npm test
 ## 👤 Author
 
 **Mohammed Aqib**
+
 - GitHub: [@imaqib101](https://github.com/imaqib101)
 - Location: Bengaluru, India

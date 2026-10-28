@@ -29,12 +29,20 @@ describe("Metrics", () => {
 
 describe("admin endpoints", () => {
   const closers: Array<() => Promise<void>> = [];
-  afterEach(async () => { await Promise.all(closers.splice(0).map((c) => c())); });
+  afterEach(async () => {
+    await Promise.all(closers.splice(0).map((c) => c()));
+  });
 
   it("serves /_nexus/health and /_nexus/metrics reflecting proxied traffic", async () => {
     const up = http.createServer((_q, r) => r.end("ok"));
     await new Promise<void>((r) => up.listen(0, "127.0.0.1", r));
-    closers.push(() => new Promise<void>((r) => { up.close(() => r()); up.closeAllConnections(); }));
+    closers.push(
+      () =>
+        new Promise<void>((r) => {
+          up.close(() => r());
+          up.closeAllConnections();
+        }),
+    );
     const upUrl = `http://127.0.0.1:${(up.address() as AddressInfo).port}`;
 
     const gateway = new NexusGateway();

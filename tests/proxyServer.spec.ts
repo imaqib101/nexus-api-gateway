@@ -17,7 +17,13 @@ describe("ProxyServer", () => {
   let gateway: NexusGateway;
 
   const track = (server: http.Server) =>
-    closers.push(() => new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections?.(); }));
+    closers.push(
+      () =>
+        new Promise<void>((r) => {
+          server.close(() => r());
+          server.closeAllConnections?.();
+        }),
+    );
 
   async function startProxy(opts: Partial<ConstructorParameters<typeof ProxyServer>[0]> = {}) {
     const proxy = new ProxyServer({ gateway, ...opts });
@@ -35,7 +41,9 @@ describe("ProxyServer", () => {
   });
 
   it("forwards method, path, body and response", async () => {
-    const seen: { method?: string; url?: string; body: string; xff?: string | string[] } = { body: "" };
+    const seen: { method?: string; url?: string; body: string; xff?: string | string[] } = {
+      body: "",
+    };
     const up = await startUpstream((req, res) => {
       seen.method = req.method;
       seen.url = req.url;
@@ -60,7 +68,10 @@ describe("ProxyServer", () => {
 
   it("strips the route prefix when configured", async () => {
     let url = "";
-    const up = await startUpstream((req, res) => { url = req.url!; res.end("ok"); });
+    const up = await startUpstream((req, res) => {
+      url = req.url!;
+      res.end("ok");
+    });
     track(up.server);
     gateway.addRoute({ pathPrefix: "/svc", targets: [up.url], stripPrefix: true });
     const { base } = await startProxy();
@@ -71,7 +82,11 @@ describe("ProxyServer", () => {
   it("returns 404 for unknown routes and 429 with Retry-After when limited", async () => {
     const up = await startUpstream((_req, res) => res.end("ok"));
     track(up.server);
-    gateway.addRoute({ pathPrefix: "/lim", targets: [up.url], rateLimit: { capacity: 1, refillRatePerSec: 0.01 } });
+    gateway.addRoute({
+      pathPrefix: "/lim",
+      targets: [up.url],
+      rateLimit: { capacity: 1, refillRatePerSec: 0.01 },
+    });
     const { base } = await startProxy();
 
     expect((await fetch(`${base}/nope`)).status).toBe(404);
@@ -87,7 +102,9 @@ describe("ProxyServer", () => {
     const deadUrl = dead.url;
     await new Promise<void>((r) => dead.server.close(() => r()));
     gateway.addRoute({ pathPrefix: "/dead", targets: [deadUrl] });
-    const { base, proxy } = await startProxy({ breaker: { failureThreshold: 2, resetTimeoutMs: 60_000 } });
+    const { base, proxy } = await startProxy({
+      breaker: { failureThreshold: 2, resetTimeoutMs: 60_000 },
+    });
 
     expect((await fetch(`${base}/dead`)).status).toBe(502);
     expect((await fetch(`${base}/dead`)).status).toBe(502);
@@ -98,7 +115,9 @@ describe("ProxyServer", () => {
   });
 
   it("returns 504 on upstream timeout and releases the connection slot", async () => {
-    const up = await startUpstream(() => { /* never respond */ });
+    const up = await startUpstream(() => {
+      /* never respond */
+    });
     track(up.server);
     gateway.addRoute({ pathPrefix: "/slow", targets: [up.url] });
     const { base } = await startProxy({ requestTimeoutMs: 50 });
@@ -120,10 +139,14 @@ describe("ProxyServer", () => {
   it("balances across targets and skips unhealthy ones", async () => {
     const a = await startUpstream((_q, res) => res.end("a"));
     const b = await startUpstream((_q, res) => res.end("b"));
-    track(a.server); track(b.server);
+    track(a.server);
+    track(b.server);
     gateway.addRoute({ pathPrefix: "/lb", targets: [a.url, b.url] });
     const { base } = await startProxy();
-    const bodies = new Set([await (await fetch(`${base}/lb`)).text(), await (await fetch(`${base}/lb`)).text()]);
+    const bodies = new Set([
+      await (await fetch(`${base}/lb`)).text(),
+      await (await fetch(`${base}/lb`)).text(),
+    ]);
     expect(bodies).toEqual(new Set(["a", "b"]));
     gateway.markTargetUnhealthy(b.url);
     for (let i = 0; i < 3; i++) expect(await (await fetch(`${base}/lb`)).text()).toBe("a");

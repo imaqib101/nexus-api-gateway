@@ -10,7 +10,7 @@ describe("NexusGateway Resilience, Health Checks & Rate Limiting", () => {
     gateway.addRoute({
       pathPrefix: "/db",
       targets: [primary, replica],
-      strategy: "round-robin"
+      strategy: "round-robin",
     });
 
     expect(gateway.routeRequest("/db")).toBe(primary);
@@ -32,13 +32,13 @@ describe("NexusGateway Resilience, Health Checks & Rate Limiting", () => {
     const srv = "http://dead-cluster:9000";
     gateway.addRoute({
       pathPrefix: "/critical",
-      targets: [srv]
+      targets: [srv],
     });
 
     gateway.markTargetUnhealthy(srv);
 
     expect(() => gateway.routeRequest("/critical")).toThrow(
-      "All backend targets are unhealthy for route: /critical"
+      "All backend targets are unhealthy for route: /critical",
     );
   });
 
@@ -49,8 +49,8 @@ describe("NexusGateway Resilience, Health Checks & Rate Limiting", () => {
       targets: ["http://api:8080"],
       rateLimit: {
         capacity: 2,
-        refillRatePerSec: 1
-      }
+        refillRatePerSec: 1,
+      },
     });
 
     // 1st and 2nd allowed (capacity = 2)
@@ -58,9 +58,9 @@ describe("NexusGateway Resilience, Health Checks & Rate Limiting", () => {
     expect(gateway.routeRequest("/rate-limited", { clientIp: "10.0.0.1" })).toBe("http://api:8080");
 
     // 3rd call immediately should fail
-    expect(() =>
-      gateway.routeRequest("/rate-limited", { clientIp: "10.0.0.1" })
-    ).toThrow(/Rate limit exceeded for route "\/rate-limited"/);
+    expect(() => gateway.routeRequest("/rate-limited", { clientIp: "10.0.0.1" })).toThrow(
+      /Rate limit exceeded for route "\/rate-limited"/,
+    );
 
     // Another client with separate IP is not blocked
     expect(gateway.routeRequest("/rate-limited", { clientIp: "10.0.0.2" })).toBe("http://api:8080");

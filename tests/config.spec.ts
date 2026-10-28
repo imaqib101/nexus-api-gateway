@@ -6,7 +6,13 @@ import { ConfigError, createGatewayFromConfig, loadConfig, parseConfig } from ".
 
 const valid = {
   port: 9000,
-  routes: [{ pathPrefix: "/a", targets: ["http://a:1", { url: "http://b:1", weight: 2 }], strategy: "p2c" }]
+  routes: [
+    {
+      pathPrefix: "/a",
+      targets: ["http://a:1", { url: "http://b:1", weight: 2 }],
+      strategy: "p2c",
+    },
+  ],
 };
 
 describe("parseConfig", () => {
@@ -22,9 +28,14 @@ describe("parseConfig", () => {
         port: 99999,
         routes: [
           { pathPrefix: "a", targets: [] },
-          { pathPrefix: "/b", targets: ["ftp://x"], strategy: "random", rateLimit: { capacity: 0 } },
-          { pathPrefix: "/b", targets: ["http://x"], canaryPercent: 101 }
-        ]
+          {
+            pathPrefix: "/b",
+            targets: ["ftp://x"],
+            strategy: "random",
+            rateLimit: { capacity: 0 },
+          },
+          { pathPrefix: "/b", targets: ["http://x"], canaryPercent: 101 },
+        ],
       });
       expect.unreachable();
     } catch (e) {

@@ -21,18 +21,30 @@ describe("route matching", () => {
   it("rejects duplicate and malformed prefixes", () => {
     const gw = new NexusGateway();
     gw.addRoute({ pathPrefix: "/a", targets: ["http://a:1"] });
-    expect(() => gw.addRoute({ pathPrefix: "/a", targets: ["http://b:1"] })).toThrow(/already registered/);
-    expect(() => gw.addRoute({ pathPrefix: "a", targets: ["http://b:1"] })).toThrow(/must start with/);
+    expect(() => gw.addRoute({ pathPrefix: "/a", targets: ["http://b:1"] })).toThrow(
+      /already registered/,
+    );
+    expect(() => gw.addRoute({ pathPrefix: "a", targets: ["http://b:1"] })).toThrow(
+      /must start with/,
+    );
   });
 
   it("removeRoute drops the route and its limiter state", () => {
     const gw = new NexusGateway();
-    gw.addRoute({ pathPrefix: "/a", targets: ["http://a:1"], rateLimit: { capacity: 1, refillRatePerSec: 0.001 } });
+    gw.addRoute({
+      pathPrefix: "/a",
+      targets: ["http://a:1"],
+      rateLimit: { capacity: 1, refillRatePerSec: 0.001 },
+    });
     gw.routeRequest("/a", { clientIp: "1.1.1.1" });
     expect(gw.removeRoute("/a")).toBe(true);
     expect(gw.removeRoute("/a")).toBe(false);
     expect(() => gw.routeRequest("/a")).toThrow(NoRouteError);
-    gw.addRoute({ pathPrefix: "/a", targets: ["http://a:1"], rateLimit: { capacity: 1, refillRatePerSec: 0.001 } });
+    gw.addRoute({
+      pathPrefix: "/a",
+      targets: ["http://a:1"],
+      rateLimit: { capacity: 1, refillRatePerSec: 0.001 },
+    });
     expect(gw.routeRequest("/a", { clientIp: "1.1.1.1" })).toBe("http://a:1");
   });
 });
@@ -53,7 +65,11 @@ describe("rewritePath", () => {
 describe("typed errors", () => {
   it("carry HTTP status codes", () => {
     const gw = new NexusGateway();
-    gw.addRoute({ pathPrefix: "/a", targets: ["http://a:1"], rateLimit: { capacity: 1, refillRatePerSec: 0.001 } });
+    gw.addRoute({
+      pathPrefix: "/a",
+      targets: ["http://a:1"],
+      rateLimit: { capacity: 1, refillRatePerSec: 0.001 },
+    });
     gw.routeRequest("/a");
     try {
       gw.routeRequest("/a");

@@ -16,7 +16,11 @@ export interface HealthCheckerOptions {
   onStateChange?: (targetUrl: string, healthy: boolean) => void;
 }
 
-export async function httpProbe(targetUrl: string, path: string, timeoutMs: number): Promise<boolean> {
+export async function httpProbe(
+  targetUrl: string,
+  path: string,
+  timeoutMs: number,
+): Promise<boolean> {
   const url = new URL(path, targetUrl);
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });

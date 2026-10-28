@@ -23,7 +23,10 @@ export class TokenBucketRateLimiter {
       this.buckets.set(key, bucket);
     } else {
       const elapsedSec = (now - bucket.lastRefill) / 1000;
-      bucket.tokens = Math.min(this.config.capacity, bucket.tokens + elapsedSec * this.config.refillRatePerSec);
+      bucket.tokens = Math.min(
+        this.config.capacity,
+        bucket.tokens + elapsedSec * this.config.refillRatePerSec,
+      );
       bucket.lastRefill = now;
     }
 
@@ -31,7 +34,7 @@ export class TokenBucketRateLimiter {
       bucket.tokens -= tokens;
       return {
         allowed: true,
-        remainingTokens: Math.floor(bucket.tokens)
+        remainingTokens: Math.floor(bucket.tokens),
       };
     }
 
@@ -41,7 +44,7 @@ export class TokenBucketRateLimiter {
     return {
       allowed: false,
       remainingTokens: 0,
-      retryAfterMs
+      retryAfterMs,
     };
   }
 
