@@ -5,8 +5,9 @@
 [![Vitest](https://img.shields.io/badge/Vitest-Tested-729B1B?style=for-the-badge&logo=vitest&logoColor=white)](https://vitest.dev/)
 [![Rate Limiter](https://img.shields.io/badge/Token%20Bucket-Enforced-critical?style=for-the-badge)](https://en.wikipedia.org/wiki/Token_bucket)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/imaqib101/nexus-api-gateway/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/imaqib101/nexus-api-gateway/actions/workflows/ci.yml)
 
-High-throughput, distributed-ready **Reverse Proxy & API Gateway** written in strict TypeScript. Features 5 adaptive load-balancing algorithms, dynamic health checking with automatic circuit ejection, and token-bucket rate limiting per route and IP.
+**Reverse Proxy & API Gateway** written in strict TypeScript. 7 load-balancing strategies, active health checks with hysteresis, per-target circuit breakers, token-bucket rate limiting per route and IP, Prometheus metrics, and a config-file-driven CLI. Use it as a library (`NexusGateway` for routing decisions) or run it as a proxy (`ProxyServer` / `nexus-gateway`).
 
 ---
 
@@ -51,6 +52,8 @@ Incoming HTTP / WebSocket Traffic
 | **Consistent Hashing** | `ip-hash` | Ring hashing with 100 virtual replicas per node for cache & WebSocket affinity |
 | **Latency-Aware** | `latency-based` | Exponential moving average (EMA, α=0.3) targeting lowest response latency |
 | **Round-Robin** | `round-robin` | Sequential distribution across healthy targets |
+| **Power of Two Choices** | `p2c` | Samples two healthy nodes, picks the one with fewer active connections |
+| **Canary** | `canary` | Sends a configurable percentage (or `x-canary` header traffic) to the second target |
 
 ---
 
@@ -96,6 +99,39 @@ const activeBackend = gateway.routeRequest("/api/v1/inference/generate");
 // Mark restored upon passing health probes
 gateway.markTargetHealthy("http://gpu-cluster-b:8080");
 ```
+
+---
+
+## 🌐 Running as a proxy
+
+```bash
+npm run build
+node dist/cli.js --config examples/gateway.json
+```
+
+```typescript
+import { NexusGateway, ProxyServer, HealthChecker } from "nexus-api-gateway";
+
+const gateway = new NexusGateway();
+gateway.addRoute({ pathPrefix: "/api", targets: ["http://app-1:3000", "http://app-2:3000"], stripPrefix: true });
+
+const proxy = new ProxyServer({ gateway, requestTimeoutMs: 15_000, breaker: { failureThreshold: 5, resetTimeoutMs: 30_000 } });
+await proxy.listen(8080);
+new HealthChecker({ gateway, path: "/health" }).start();
+```
+
+| Condition | Response |
+| :--- | :--- |
+| No matching route | `404 NO_ROUTE` |
+| Rate limit hit | `429 RATE_LIMITED` + `Retry-After` |
+| All targets ejected | `503 NO_HEALTHY_TARGET` |
+| Target circuit open | `503 CIRCUIT_OPEN` |
+| Upstream unreachable | `502 BAD_GATEWAY` |
+| Upstream timeout | `504 UPSTREAM_TIMEOUT` |
+
+Routing uses **longest-prefix match** on path segment boundaries, so `/api/v1/inference` wins over `/api`, and `/apiary` does not match `/api`.
+
+**Admin endpoints** (disable with `adminEndpoints: false`): `GET /_nexus/health`, `GET /_nexus/metrics` (Prometheus text format: request counts by route/target/status, latency histogram, active connections, ejected targets).
 
 ---
 
