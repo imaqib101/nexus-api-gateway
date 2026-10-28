@@ -31,6 +31,38 @@ export interface RouteRule {
   canaryHeaderKey?: string;
 }
 
+export class GatewayError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly code: string
+  ) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
+
+export class NoRouteError extends GatewayError {
+  constructor(path: string) {
+    super(`No route found for path: ${path}`, 404, "NO_ROUTE");
+  }
+}
+
+export class RateLimitError extends GatewayError {
+  constructor(
+    readonly pathPrefix: string,
+    readonly retryAfterMs: number
+  ) {
+    super(`Rate limit exceeded for route "${pathPrefix}". Retry after ${retryAfterMs}ms`, 429, "RATE_LIMITED");
+  }
+}
+
+export class NoHealthyTargetError extends GatewayError {
+  constructor(pathPrefix: string) {
+    super(`All backend targets are unhealthy for route: ${pathPrefix}`, 503, "NO_HEALTHY_TARGET");
+  }
+}
+
 export interface RouteRequestOptions {
   clientIp?: string;
   sessionKey?: string;
@@ -53,6 +85,12 @@ export class NexusGateway {
   private rateLimiters = new Map<string, TokenBucketRateLimiter>();
 
   addRoute(rule: RouteRule) {
+    if (!rule.pathPrefix.startsWith("/")) {
+      throw new Error(`pathPrefix must start with "/": ${rule.pathPrefix}`);
+    }
+    if (this.routes.some((r) => r.pathPrefix === rule.pathPrefix)) {
+      throw new Error(`Route already registered for prefix: ${rule.pathPrefix}`);
+    }
     this.routes.push(rule);
     const normalized = rule.targets.map(normalizeTarget);
 
@@ -66,6 +104,42 @@ export class NexusGateway {
       hasher.updateTargets(normalized.map((t) => t.url));
       this.hashBalancers.set(rule.pathPrefix, hasher);
     }
+  }
+
+  removeRoute(pathPrefix: string): boolean {
+    const before = this.routes.length;
+    this.routes = this.routes.filter((r) => r.pathPrefix !== pathPrefix);
+    this.rateLimiters.delete(pathPrefix);
+    this.roundRobinBalancers.delete(pathPrefix);
+    this.weightedBalancers.delete(pathPrefix);
+    this.hashBalancers.delete(pathPrefix);
+    this.canaryBalancers.delete(pathPrefix);
+    return this.routes.length < before;
+  }
+
+  getRoutes(): readonly RouteRule[] {
+    return this.routes;
+  }
+
+  /**
+   * Longest-prefix match on path segment boundaries, so "/api" matches
+   * "/api" and "/api/users" but not "/apiary".
+   */
+  findRoute(path: string): RouteRule | undefined {
+    let best: RouteRule | undefined;
+    for (const r of this.routes) {
+      if (!matchesPrefix(path, r.pathPrefix)) continue;
+      if (!best || r.pathPrefix.length > best.pathPrefix.length) best = r;
+    }
+    return best;
+  }
+
+  /** Path as seen by the upstream, honouring `stripPrefix`. */
+  rewritePath(path: string, route: RouteRule): string {
+    if (!route.stripPrefix) return path;
+    const rest = path.slice(route.pathPrefix.length);
+    if (rest === "" || rest.startsWith("?")) return "/" + rest;
+    return rest.startsWith("/") ? rest : "/" + rest;
   }
 
   markTargetUnhealthy(targetUrl: string) {
@@ -108,9 +182,9 @@ export class NexusGateway {
   }
 
   routeRequest(path: string, options: RouteRequestOptions = {}): string {
-    const route = this.routes.find((r) => path.startsWith(r.pathPrefix));
+    const route = this.findRoute(path);
     if (!route || route.targets.length === 0) {
-      throw new Error(`No route found for path: ${path}`);
+      throw new NoRouteError(path);
     }
 
     // Check rate limit if configured
@@ -119,7 +193,7 @@ export class NexusGateway {
       const clientKey = options.clientIp ?? "global";
       const check = limiter?.consume(clientKey);
       if (check && !check.allowed) {
-        throw new Error(`Rate limit exceeded for route "${route.pathPrefix}". Retry after ${check.retryAfterMs}ms`);
+        throw new RateLimitError(route.pathPrefix, check.retryAfterMs ?? 0);
       }
     }
 
@@ -127,7 +201,7 @@ export class NexusGateway {
     const healthyTargets = allNormalized.filter((t) => !this.unhealthyTargets.has(t.url));
 
     if (healthyTargets.length === 0) {
-      throw new Error(`All backend targets are unhealthy for route: ${route.pathPrefix}`);
+      throw new NoHealthyTargetError(route.pathPrefix);
     }
 
     const strategy = route.strategy ?? "round-robin";
@@ -219,4 +293,11 @@ export class NexusGateway {
       }
     }
   }
+}
+
+function matchesPrefix(path: string, prefix: string): boolean {
+  if (!path.startsWith(prefix)) return false;
+  if (prefix.endsWith("/") || path.length === prefix.length) return true;
+  const next = path[prefix.length];
+  return next === "/" || next === "?" || next === "#";
 }
