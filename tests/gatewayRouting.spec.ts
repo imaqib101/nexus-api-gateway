@@ -7,7 +7,7 @@ describe("NexusGateway Routing Algorithms", () => {
     gateway.addRoute({
       pathPrefix: "/api/v1/auth",
       targets: ["http://srv-1:3000", "http://srv-2:3000", "http://srv-3:3000"],
-      strategy: "round-robin"
+      strategy: "round-robin",
     });
 
     expect(gateway.routeRequest("/api/v1/auth/login")).toBe("http://srv-1:3000");
@@ -22,9 +22,9 @@ describe("NexusGateway Routing Algorithms", () => {
       pathPrefix: "/api/v1/inference",
       targets: [
         { url: "http://gpu-heavy:8000", weight: 3 },
-        { url: "http://cpu-light:8000", weight: 1 }
+        { url: "http://cpu-light:8000", weight: 1 },
       ],
-      strategy: "weighted-round-robin"
+      strategy: "weighted-round-robin",
     });
 
     const selections: string[] = [];
@@ -47,7 +47,7 @@ describe("NexusGateway Routing Algorithms", () => {
     gateway.addRoute({
       pathPrefix: "/api/v1/tasks",
       targets: [t1, t2],
-      strategy: "least-connections"
+      strategy: "least-connections",
     });
 
     // Simulate node-a having 5 active connections, node-b having 1
@@ -68,7 +68,7 @@ describe("NexusGateway Routing Algorithms", () => {
     gateway.addRoute({
       pathPrefix: "/api/v1/ws",
       targets: ["http://socket-cluster-1", "http://socket-cluster-2", "http://socket-cluster-3"],
-      strategy: "ip-hash"
+      strategy: "ip-hash",
     });
 
     const clientA = "192.168.1.100";
@@ -95,7 +95,7 @@ describe("NexusGateway Routing Algorithms", () => {
     gateway.addRoute({
       pathPrefix: "/api/v1/cdn",
       targets: [fastNode, slowNode],
-      strategy: "latency-based"
+      strategy: "latency-based",
     });
 
     gateway.recordLatency(fastNode, 15);

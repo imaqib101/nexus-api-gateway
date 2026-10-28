@@ -13,7 +13,7 @@ function setup(results: Record<string, boolean>) {
     unhealthyThreshold: 2,
     healthyThreshold: 2,
     probe: async (url) => results[url],
-    onStateChange: (u, h) => events.push([u, h])
+    onStateChange: (u, h) => events.push([u, h]),
   });
   return { gateway, checker, events };
 }
@@ -66,7 +66,9 @@ describe("HealthChecker", () => {
   });
 
   it("rejects invalid thresholds", () => {
-    expect(() => new HealthChecker({ gateway: new NexusGateway(), unhealthyThreshold: 0 })).toThrow();
+    expect(
+      () => new HealthChecker({ gateway: new NexusGateway(), unhealthyThreshold: 0 }),
+    ).toThrow();
   });
 });
 

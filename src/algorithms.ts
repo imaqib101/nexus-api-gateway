@@ -195,7 +195,10 @@ export class CanaryRoutingBalancer {
     return hash;
   }
 
-  select(options?: { headers?: Record<string, string | string[] | undefined>; clientKey?: string }): string {
+  select(options?: {
+    headers?: Record<string, string | string[] | undefined>;
+    clientKey?: string;
+  }): string {
     const { config } = this;
     const headerKey = (config.canaryHeaderKey ?? "x-canary").toLowerCase();
     const expectedValue = config.canaryHeaderValue ?? "true";
@@ -203,7 +206,10 @@ export class CanaryRoutingBalancer {
     // 1. Check explicit header override
     if (options?.headers) {
       const headerVal = options.headers[headerKey];
-      if (headerVal === expectedValue || (Array.isArray(headerVal) && headerVal.includes(expectedValue))) {
+      if (
+        headerVal === expectedValue ||
+        (Array.isArray(headerVal) && headerVal.includes(expectedValue))
+      ) {
         return config.canaryTarget;
       }
     }

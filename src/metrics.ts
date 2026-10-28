@@ -42,7 +42,9 @@ export class Metrics {
     return n;
   }
 
-  render(extra: { activeConnections?: Record<string, number>; unhealthyTargets?: string[] } = {}): string {
+  render(
+    extra: { activeConnections?: Record<string, number>; unhealthyTargets?: string[] } = {},
+  ): string {
     const out: string[] = [];
 
     out.push("# HELP nexus_requests_total Requests handled by the gateway.");
@@ -52,7 +54,9 @@ export class Metrics {
     out.push("# HELP nexus_request_duration_ms Upstream request duration in milliseconds.");
     out.push("# TYPE nexus_request_duration_ms histogram");
     for (const [labels, h] of this.durations) {
-      BUCKETS_MS.forEach((le, i) => out.push(`nexus_request_duration_ms_bucket{${labels},le="${le}"} ${h.buckets[i]}`));
+      BUCKETS_MS.forEach((le, i) =>
+        out.push(`nexus_request_duration_ms_bucket{${labels},le="${le}"} ${h.buckets[i]}`),
+      );
       out.push(`nexus_request_duration_ms_bucket{${labels},le="+Inf"} ${h.count}`);
       out.push(`nexus_request_duration_ms_sum{${labels}} ${h.sum}`);
       out.push(`nexus_request_duration_ms_count{${labels}} ${h.count}`);
@@ -66,7 +70,8 @@ export class Metrics {
 
     out.push("# HELP nexus_target_healthy 1 if the target is in rotation.");
     out.push("# TYPE nexus_target_healthy gauge");
-    for (const t of extra.unhealthyTargets ?? []) out.push(`nexus_target_healthy{target="${esc(t)}"} 0`);
+    for (const t of extra.unhealthyTargets ?? [])
+      out.push(`nexus_target_healthy{target="${esc(t)}"} 0`);
 
     out.push("# HELP nexus_uptime_seconds Seconds since the registry was created.");
     out.push("# TYPE nexus_uptime_seconds gauge");

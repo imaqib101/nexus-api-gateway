@@ -29,7 +29,7 @@ const HOP_BY_HOP = new Set([
   "te",
   "trailer",
   "transfer-encoding",
-  "upgrade"
+  "upgrade",
 ]);
 
 export class ProxyServer {
@@ -85,13 +85,18 @@ export class ProxyServer {
     const startedAt = Date.now();
     const routeLabel = this.options.gateway.findRoute(rawUrl)?.pathPrefix ?? "unmatched";
     const record = (status: number, target?: string) =>
-      this.metrics.observe({ route: routeLabel, target, status, durationMs: Date.now() - startedAt });
+      this.metrics.observe({
+        route: routeLabel,
+        target,
+        status,
+        durationMs: Date.now() - startedAt,
+      });
 
     let target: string;
     try {
       target = this.options.gateway.routeRequest(rawUrl, {
         clientIp,
-        headers: req.headers
+        headers: req.headers,
       });
     } catch (err) {
       record(err instanceof GatewayError ? err.statusCode : 500);
@@ -117,7 +122,8 @@ export class ProxyServer {
     }
     if (path === ADMIN_PREFIX + "/metrics") {
       const targets = new Set<string>();
-      for (const r of gw.getRoutes()) for (const t of r.targets) targets.add(typeof t === "string" ? t : t.url);
+      for (const r of gw.getRoutes())
+        for (const t of r.targets) targets.add(typeof t === "string" ? t : t.url);
       const activeConnections: Record<string, number> = {};
       const unhealthyTargets: string[] = [];
       for (const t of targets) {
@@ -125,7 +131,10 @@ export class ProxyServer {
         if (!gw.isTargetHealthy(t)) unhealthyTargets.push(t);
       }
       const body = this.metrics.render({ activeConnections, unhealthyTargets });
-      res.writeHead(200, { "content-type": "text/plain; version=0.0.4", "content-length": Buffer.byteLength(body) });
+      res.writeHead(200, {
+        "content-type": "text/plain; version=0.0.4",
+        "content-length": Buffer.byteLength(body),
+      });
       return void res.end(body);
     }
     this.sendJson(res, 404, { error: "Unknown admin endpoint", code: "NO_ROUTE" });
@@ -138,7 +147,7 @@ export class ProxyServer {
     upstreamPath: string,
     clientIp: string,
     breaker: CircuitBreaker,
-    record: (status: number, target?: string) => void
+    record: (status: number, target?: string) => void,
   ): void {
     const gw = this.options.gateway;
     const base = new URL(target);
@@ -178,7 +187,7 @@ export class ProxyServer {
         method: req.method,
         path: basePath + upstreamPath,
         headers,
-        timeout: this.requestTimeoutMs
+        timeout: this.requestTimeoutMs,
       },
       (upRes) => {
         const outHeaders: http.OutgoingHttpHeaders = {};
@@ -193,7 +202,7 @@ export class ProxyServer {
           settle(false);
           res.destroy();
         });
-      }
+      },
     );
 
     upstream.on("timeout", () => {
@@ -235,7 +244,7 @@ export class ProxyServer {
     res: http.ServerResponse,
     status: number,
     body: unknown,
-    headers: Record<string, string> = {}
+    headers: Record<string, string> = {},
   ): void {
     if (res.headersSent) {
       res.destroy();
@@ -245,7 +254,7 @@ export class ProxyServer {
     res.writeHead(status, {
       "content-type": "application/json",
       "content-length": Buffer.byteLength(payload),
-      ...headers
+      ...headers,
     });
     res.end(payload);
   }

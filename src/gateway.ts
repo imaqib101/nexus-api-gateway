@@ -1,6 +1,5 @@
 import {
   TargetInput,
-  WeightedTarget,
   normalizeTarget,
   RoundRobinBalancer,
   WeightedRoundRobinBalancer,
@@ -8,7 +7,7 @@ import {
   ConsistentHashBalancer,
   LatencyBasedBalancer,
   PowerOfTwoChoicesBalancer,
-  CanaryRoutingBalancer
+  CanaryRoutingBalancer,
 } from "./algorithms";
 import { TokenBucketRateLimiter, type RateLimitConfig } from "./rateLimiter";
 
@@ -35,7 +34,7 @@ export class GatewayError extends Error {
   constructor(
     message: string,
     readonly statusCode: number,
-    readonly code: string
+    readonly code: string,
   ) {
     super(message);
     this.name = new.target.name;
@@ -51,9 +50,13 @@ export class NoRouteError extends GatewayError {
 export class RateLimitError extends GatewayError {
   constructor(
     readonly pathPrefix: string,
-    readonly retryAfterMs: number
+    readonly retryAfterMs: number,
   ) {
-    super(`Rate limit exceeded for route "${pathPrefix}". Retry after ${retryAfterMs}ms`, 429, "RATE_LIMITED");
+    super(
+      `Rate limit exceeded for route "${pathPrefix}". Retry after ${retryAfterMs}ms`,
+      429,
+      "RATE_LIMITED",
+    );
   }
 }
 
@@ -219,7 +222,7 @@ export class NexusGateway {
       case "least-connections": {
         return this.leastConnBalancer.select(
           healthyTargets.map((t) => t.url),
-          this.activeConnections
+          this.activeConnections,
         );
       }
 
@@ -237,14 +240,14 @@ export class NexusGateway {
       case "latency-based": {
         return this.latencyBalancer.select(
           healthyTargets.map((t) => t.url),
-          this.latenciesEma
+          this.latenciesEma,
         );
       }
 
       case "p2c": {
         return this.p2cBalancer.select(
           healthyTargets.map((t) => t.url),
-          this.activeConnections
+          this.activeConnections,
         );
       }
 
@@ -257,13 +260,13 @@ export class NexusGateway {
             stableTarget: stable,
             canaryTarget: canary,
             canaryWeightPercent: route.canaryPercent ?? 10,
-            canaryHeaderKey: route.canaryHeaderKey ?? "x-canary"
+            canaryHeaderKey: route.canaryHeaderKey ?? "x-canary",
           });
           this.canaryBalancers.set(route.pathPrefix, balancer);
         }
         return balancer.select({
           headers: options.headers,
-          clientKey: options.clientIp || options.sessionKey
+          clientKey: options.clientIp || options.sessionKey,
         });
       }
 

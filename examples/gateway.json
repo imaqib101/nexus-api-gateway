@@ -3,7 +3,12 @@
   "host": "0.0.0.0",
   "requestTimeoutMs": 15000,
   "breaker": { "failureThreshold": 5, "resetTimeoutMs": 30000 },
-  "healthCheck": { "path": "/health", "intervalMs": 10000, "unhealthyThreshold": 3, "healthyThreshold": 2 },
+  "healthCheck": {
+    "path": "/health",
+    "intervalMs": 10000,
+    "unhealthyThreshold": 3,
+    "healthyThreshold": 2
+  },
   "routes": [
     {
       "pathPrefix": "/api/v1/inference",

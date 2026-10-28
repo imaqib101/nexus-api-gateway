@@ -1,4 +1,4 @@
-import * as crypto from 'crypto';
+import * as crypto from "crypto";
 
 export interface ConsistentHashOptions {
   virtualNodes?: number; // default 150
@@ -6,7 +6,7 @@ export interface ConsistentHashOptions {
 }
 
 function defaultHashFn(key: string): number {
-  const buf = crypto.createHash('md5').update(key).digest();
+  const buf = crypto.createHash("md5").update(key).digest();
   // Read first 4 bytes as unsigned 32-bit big-endian integer
   return buf.readUInt32BE(0);
 }
@@ -42,7 +42,7 @@ export class ConsistentHashRing {
 
   getNode(key: string): string {
     if (this.sortedHashes.length === 0) {
-      throw new Error('ConsistentHashRing is empty: add at least one node before routing');
+      throw new Error("ConsistentHashRing is empty: add at least one node before routing");
     }
 
     const hash = this.hashFn(key);

@@ -19,20 +19,23 @@ async function main(): Promise<void> {
     gateway,
     requestTimeoutMs: config.requestTimeoutMs,
     trustProxy: config.trustProxy,
-    breaker: config.breaker
+    breaker: config.breaker,
   });
 
   const checker = config.healthCheck
     ? new HealthChecker({
         gateway,
         ...config.healthCheck,
-        onStateChange: (url, healthy) => console.log(`[health] ${url} -> ${healthy ? "UP" : "DOWN"}`)
+        onStateChange: (url, healthy) =>
+          console.log(`[health] ${url} -> ${healthy ? "UP" : "DOWN"}`),
       })
     : undefined;
 
   const addr = await proxy.listen(config.port, config.host);
   checker?.start();
-  console.log(`[nexus] listening on ${addr.address}:${addr.port} with ${config.routes.length} route(s)`);
+  console.log(
+    `[nexus] listening on ${addr.address}:${addr.port} with ${config.routes.length} route(s)`,
+  );
 
   const shutdown = async (signal: string) => {
     console.log(`[nexus] ${signal} received, draining`);

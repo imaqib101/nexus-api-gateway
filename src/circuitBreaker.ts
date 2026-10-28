@@ -17,7 +17,9 @@ export class CircuitBreaker {
   private failures = 0;
   private lastStateChange = Date.now();
 
-  constructor(private options: CircuitBreakerOptions = { failureThreshold: 5, resetTimeoutMs: 30000 }) {}
+  constructor(
+    private options: CircuitBreakerOptions = { failureThreshold: 5, resetTimeoutMs: 30000 },
+  ) {}
 
   getState(): CircuitState {
     if (this.state === CircuitState.OPEN) {

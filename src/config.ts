@@ -9,7 +9,10 @@ export interface NexusConfig {
   requestTimeoutMs?: number;
   trustProxy?: boolean;
   breaker?: CircuitBreakerOptions;
-  healthCheck?: Pick<HealthCheckerOptions, "path" | "intervalMs" | "timeoutMs" | "unhealthyThreshold" | "healthyThreshold">;
+  healthCheck?: Pick<
+    HealthCheckerOptions,
+    "path" | "intervalMs" | "timeoutMs" | "unhealthyThreshold" | "healthyThreshold"
+  >;
   routes: RouteRule[];
 }
 
@@ -20,7 +23,7 @@ const STRATEGIES: RoutingStrategy[] = [
   "ip-hash",
   "latency-based",
   "p2c",
-  "canary"
+  "canary",
 ];
 
 export class ConfigError extends Error {
@@ -51,16 +54,23 @@ export function parseConfig(raw: unknown): NexusConfig {
   if (typeof host !== "string" || host === "") problems.push("host must be a non-empty string");
 
   for (const key of ["requestTimeoutMs"] as const) {
-    if (raw[key] !== undefined && !positive(raw[key])) problems.push(`${key} must be a positive number`);
+    if (raw[key] !== undefined && !positive(raw[key]))
+      problems.push(`${key} must be a positive number`);
   }
-  if (raw.trustProxy !== undefined && typeof raw.trustProxy !== "boolean") problems.push("trustProxy must be a boolean");
+  if (raw.trustProxy !== undefined && typeof raw.trustProxy !== "boolean")
+    problems.push("trustProxy must be a boolean");
 
   if (raw.breaker !== undefined) {
-    if (!isObj(raw.breaker) || !positive(raw.breaker.failureThreshold) || !positive(raw.breaker.resetTimeoutMs)) {
+    if (
+      !isObj(raw.breaker) ||
+      !positive(raw.breaker.failureThreshold) ||
+      !positive(raw.breaker.resetTimeoutMs)
+    ) {
       problems.push("breaker needs positive failureThreshold and resetTimeoutMs");
     }
   }
-  if (raw.healthCheck !== undefined && !isObj(raw.healthCheck)) problems.push("healthCheck must be an object");
+  if (raw.healthCheck !== undefined && !isObj(raw.healthCheck))
+    problems.push("healthCheck must be an object");
 
   const routes = raw.routes;
   if (!Array.isArray(routes) || routes.length === 0) {
@@ -94,11 +104,18 @@ export function parseConfig(raw: unknown): NexusConfig {
         problems.push(`${at}.strategy must be one of ${STRATEGIES.join(", ")}`);
       }
       if (r.rateLimit !== undefined) {
-        if (!isObj(r.rateLimit) || !positive(r.rateLimit.capacity) || !positive(r.rateLimit.refillRatePerSec)) {
+        if (
+          !isObj(r.rateLimit) ||
+          !positive(r.rateLimit.capacity) ||
+          !positive(r.rateLimit.refillRatePerSec)
+        ) {
           problems.push(`${at}.rateLimit needs positive capacity and refillRatePerSec`);
         }
       }
-      if (r.canaryPercent !== undefined && (typeof r.canaryPercent !== "number" || r.canaryPercent < 0 || r.canaryPercent > 100)) {
+      if (
+        r.canaryPercent !== undefined &&
+        (typeof r.canaryPercent !== "number" || r.canaryPercent < 0 || r.canaryPercent > 100)
+      ) {
         problems.push(`${at}.canaryPercent must be between 0 and 100`);
       }
     });
