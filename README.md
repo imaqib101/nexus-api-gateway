@@ -146,8 +146,23 @@ Routing uses **longest-prefix match** on path segment boundaries, so `/api/v1/in
 ## 🧪 Testing
 
 ```bash
-npm test
+npm test             # run the Vitest suites
+npm run test:coverage
 ```
+
+---
+
+## 🛠️ Development
+
+```bash
+npm ci
+npm run lint          # ESLint
+npm run format:check  # Prettier (use `npm run format` to fix)
+npm run typecheck
+npm run build
+```
+
+Node.js 20 or newer is required (see `.nvmrc`). See [CONTRIBUTING.md](CONTRIBUTING.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
