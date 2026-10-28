@@ -13,6 +13,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). Versions follow 
 - JSON config loader (`parseConfig`/`loadConfig`) and `nexus-gateway` CLI.
 - `removeRoute`, `getRoutes`, `findRoute`, `rewritePath`; `GatewayError` hierarchy with HTTP status codes.
 - CI workflow (Node 20/22), LICENSE, CONTRIBUTING.
+- ESLint and Prettier configuration, `.editorconfig`, `.nvmrc`; lint and format checks run in CI.
+- Tests for `CircuitBreaker` and `TokenBucketRateLimiter`.
+- `package.json`: `exports`, `bugs`, `homepage`, `prepublishOnly`.
 
 ### Fixed
 
