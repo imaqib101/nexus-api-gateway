@@ -29,6 +29,7 @@ export interface RouteRule {
   stripPrefix?: boolean;
   canaryPercent?: number;
   canaryHeaderKey?: string;
+  customHeaders?: Record<string, string>;
 }
 
 export class GatewayError extends Error {
@@ -154,6 +155,10 @@ export class NexusGateway {
 
   isTargetHealthy(targetUrl: string): boolean {
     return !this.unhealthyTargets.has(targetUrl);
+  }
+
+  getRateLimiter(pathPrefix: string): TokenBucketRateLimiter | undefined {
+    return this.rateLimiters.get(pathPrefix);
   }
 
   incrementActiveConnections(targetUrl: string): void {

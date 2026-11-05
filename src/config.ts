@@ -101,6 +101,11 @@ export function parseConfig(raw: unknown): NexusConfig {
       if (r.canaryPercent !== undefined && (typeof r.canaryPercent !== "number" || r.canaryPercent < 0 || r.canaryPercent > 100)) {
         problems.push(`${at}.canaryPercent must be between 0 and 100`);
       }
+      if (r.customHeaders !== undefined) {
+        if (!isObj(r.customHeaders) || Object.values(r.customHeaders).some((v) => typeof v !== "string")) {
+          problems.push(`${at}.customHeaders must be a string key-value dictionary`);
+        }
+      }
     });
   }
 

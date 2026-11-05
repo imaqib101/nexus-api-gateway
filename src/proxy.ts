@@ -2,7 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import type { AddressInfo } from "node:net";
 import { CircuitBreaker, type CircuitBreakerOptions } from "./circuitBreaker";
-import { GatewayError, NexusGateway, RateLimitError } from "./gateway";
+import { GatewayError, NexusGateway, RateLimitError, type RouteRule } from "./gateway";
 import { Metrics } from "./metrics";
 
 export interface ProxyServerOptions {
@@ -106,7 +106,7 @@ export class ProxyServer {
 
     const route = this.options.gateway.findRoute(rawUrl);
     const upstreamPath = route ? this.options.gateway.rewritePath(rawUrl, route) : rawUrl;
-    this.forward(req, res, target, upstreamPath, clientIp, breaker, record);
+    this.forward(req, res, target, upstreamPath, clientIp, breaker, record, route);
   }
 
   private handleAdmin(rawUrl: string, res: http.ServerResponse): void {
@@ -138,7 +138,8 @@ export class ProxyServer {
     upstreamPath: string,
     clientIp: string,
     breaker: CircuitBreaker,
-    record: (status: number, target?: string) => void
+    record: (status: number, target?: string) => void,
+    route?: RouteRule
   ): void {
     const gw = this.options.gateway;
     const base = new URL(target);
@@ -148,6 +149,11 @@ export class ProxyServer {
     const headers: http.OutgoingHttpHeaders = {};
     for (const [key, value] of Object.entries(req.headers)) {
       if (!HOP_BY_HOP.has(key)) headers[key] = value;
+    }
+    if (route?.customHeaders) {
+      for (const [key, value] of Object.entries(route.customHeaders)) {
+        headers[key.toLowerCase()] = value;
+      }
     }
     headers.host = base.host;
     const inboundFor = this.options.trustProxy ? req.headers["x-forwarded-for"] : undefined;

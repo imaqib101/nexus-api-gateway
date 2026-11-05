@@ -128,4 +128,31 @@ describe("ProxyServer", () => {
     gateway.markTargetUnhealthy(b.url);
     for (let i = 0; i < 3; i++) expect(await (await fetch(`${base}/lb`)).text()).toBe("a");
   });
+
+  it("injects route customHeaders into the upstream request", async () => {
+    let receivedAuth: string | string[] | undefined;
+    let receivedCustom: string | string[] | undefined;
+    const up = await startUpstream((req, res) => {
+      receivedAuth = req.headers["authorization"];
+      receivedCustom = req.headers["x-custom-service"];
+      res.writeHead(200);
+      res.end("ok");
+    });
+    track(up.server);
+
+    gateway.addRoute({
+      pathPrefix: "/secured",
+      targets: [up.url],
+      customHeaders: {
+        authorization: "Bearer internal-token-123",
+        "X-Custom-Service": "gateway-proxy"
+      }
+    });
+
+    const { base } = await startProxy();
+    const res = await fetch(`${base}/secured`);
+    expect(res.status).toBe(200);
+    expect(receivedAuth).toBe("Bearer internal-token-123");
+    expect(receivedCustom).toBe("gateway-proxy");
+  });
 });

@@ -11,9 +11,19 @@ const valid = {
 
 describe("parseConfig", () => {
   it("accepts a valid config and applies defaults", () => {
-    const c = parseConfig({ routes: valid.routes });
+    const c = parseConfig({
+      routes: [
+        ...valid.routes,
+        {
+          pathPrefix: "/headers",
+          targets: ["http://h:1"],
+          customHeaders: { "x-source": "gateway" }
+        }
+      ]
+    });
     expect(c.port).toBe(8080);
     expect(c.host).toBe("0.0.0.0");
+    expect(c.routes[1].customHeaders).toEqual({ "x-source": "gateway" });
   });
 
   it("reports every problem at once", () => {
