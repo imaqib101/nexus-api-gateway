@@ -67,6 +67,37 @@ describe("loadConfig", () => {
     expect(gw.routeRequest("/api/v1/inference/x")).toMatch(/gpu-cluster/);
   });
 
+  it("validates responseHeaders, timeoutMs, and requestIdHeader", () => {
+    const validCustom = parseConfig({
+      requestIdHeader: "x-correlation-id",
+      routes: [
+        {
+          pathPrefix: "/custom",
+          targets: ["http://localhost:3000"],
+          responseHeaders: { "x-frame-options": "DENY" },
+          timeoutMs: 2500
+        }
+      ]
+    });
+    expect(validCustom.requestIdHeader).toBe("x-correlation-id");
+    expect(validCustom.routes[0].timeoutMs).toBe(2500);
+    expect(validCustom.routes[0].responseHeaders).toEqual({ "x-frame-options": "DENY" });
+
+    expect(() =>
+      parseConfig({
+        requestIdHeader: 123,
+        routes: [
+          {
+            pathPrefix: "/invalid",
+            targets: ["http://localhost:3000"],
+            responseHeaders: "invalid",
+            timeoutMs: -50
+          }
+        ]
+      })
+    ).toThrow(ConfigError);
+  });
+
   it("fails loudly on missing files and bad JSON", () => {
     expect(() => loadConfig(join(dir, "missing.json"))).toThrow(/cannot read/);
     const bad = join(dir, "bad.json");

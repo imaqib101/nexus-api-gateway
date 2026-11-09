@@ -30,6 +30,8 @@ export interface RouteRule {
   canaryPercent?: number;
   canaryHeaderKey?: string;
   customHeaders?: Record<string, string>;
+  responseHeaders?: Record<string, string>;
+  timeoutMs?: number;
 }
 
 export class GatewayError extends Error {

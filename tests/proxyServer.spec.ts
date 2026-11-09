@@ -155,4 +155,104 @@ describe("ProxyServer", () => {
     expect(receivedAuth).toBe("Bearer internal-token-123");
     expect(receivedCustom).toBe("gateway-proxy");
   });
+
+  it("generates and propagates x-request-id upstream and downstream", async () => {
+    let upstreamReqId: string | string[] | undefined;
+    const up = await startUpstream((req, res) => {
+      upstreamReqId = req.headers["x-request-id"];
+      res.writeHead(200);
+      res.end("ok");
+    });
+    track(up.server);
+
+    gateway.addRoute({ pathPrefix: "/trace", targets: [up.url] });
+    const { base } = await startProxy();
+
+    const res = await fetch(`${base}/trace`);
+    expect(res.status).toBe(200);
+    const downstreamReqId = res.headers.get("x-request-id");
+    expect(downstreamReqId).toBeTruthy();
+    expect(upstreamReqId).toBe(downstreamReqId);
+  });
+
+  it("preserves client-provided x-request-id header", async () => {
+    let upstreamReqId: string | string[] | undefined;
+    const up = await startUpstream((req, res) => {
+      upstreamReqId = req.headers["x-request-id"];
+      res.writeHead(200);
+      res.end("ok");
+    });
+    track(up.server);
+
+    gateway.addRoute({ pathPrefix: "/trace", targets: [up.url] });
+    const { base } = await startProxy();
+
+    const customId = "client-trace-abc-123";
+    const res = await fetch(`${base}/trace`, {
+      headers: { "x-request-id": customId }
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-request-id")).toBe(customId);
+    expect(upstreamReqId).toBe(customId);
+  });
+
+  it("supports disabling requestIdHeader", async () => {
+    let upstreamReqId: string | string[] | undefined;
+    const up = await startUpstream((req, res) => {
+      upstreamReqId = req.headers["x-request-id"];
+      res.writeHead(200);
+      res.end("ok");
+    });
+    track(up.server);
+
+    gateway.addRoute({ pathPrefix: "/no-trace", targets: [up.url] });
+    const { base } = await startProxy({ requestIdHeader: false });
+
+    const res = await fetch(`${base}/no-trace`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-request-id")).toBeNull();
+    expect(upstreamReqId).toBeUndefined();
+  });
+
+  it("injects route responseHeaders into the client response", async () => {
+    const up = await startUpstream((req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("payload");
+    });
+    track(up.server);
+
+    gateway.addRoute({
+      pathPrefix: "/cached",
+      targets: [up.url],
+      responseHeaders: {
+        "cache-control": "public, max-age=3600",
+        "x-api-version": "2026.1"
+      }
+    });
+
+    const { base } = await startProxy();
+    const res = await fetch(`${base}/cached`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=3600");
+    expect(res.headers.get("x-api-version")).toBe("2026.1");
+  });
+
+  it("enforces per-route timeoutMs when configured", async () => {
+    const up = await startUpstream((_req, res) => {
+      setTimeout(() => res.end("late"), 150);
+    });
+    track(up.server);
+
+    gateway.addRoute({
+      pathPrefix: "/fast",
+      targets: [up.url],
+      timeoutMs: 40
+    });
+
+    const { base } = await startProxy({ requestTimeoutMs: 5000 });
+    const res = await fetch(`${base}/fast`);
+    expect(res.status).toBe(504);
+    const body = await res.json();
+    expect(body.code).toBe("UPSTREAM_TIMEOUT");
+  });
 });

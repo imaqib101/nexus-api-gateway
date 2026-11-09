@@ -8,6 +8,7 @@ export interface NexusConfig {
   host: string;
   requestTimeoutMs?: number;
   trustProxy?: boolean;
+  requestIdHeader?: string | false;
   breaker?: CircuitBreakerOptions;
   healthCheck?: Pick<HealthCheckerOptions, "path" | "intervalMs" | "timeoutMs" | "unhealthyThreshold" | "healthyThreshold">;
   routes: RouteRule[];
@@ -54,6 +55,9 @@ export function parseConfig(raw: unknown): NexusConfig {
     if (raw[key] !== undefined && !positive(raw[key])) problems.push(`${key} must be a positive number`);
   }
   if (raw.trustProxy !== undefined && typeof raw.trustProxy !== "boolean") problems.push("trustProxy must be a boolean");
+  if (raw.requestIdHeader !== undefined && typeof raw.requestIdHeader !== "string" && raw.requestIdHeader !== false) {
+    problems.push("requestIdHeader must be a string or false");
+  }
 
   if (raw.breaker !== undefined) {
     if (!isObj(raw.breaker) || !positive(raw.breaker.failureThreshold) || !positive(raw.breaker.resetTimeoutMs)) {
@@ -105,6 +109,14 @@ export function parseConfig(raw: unknown): NexusConfig {
         if (!isObj(r.customHeaders) || Object.values(r.customHeaders).some((v) => typeof v !== "string")) {
           problems.push(`${at}.customHeaders must be a string key-value dictionary`);
         }
+      }
+      if (r.responseHeaders !== undefined) {
+        if (!isObj(r.responseHeaders) || Object.values(r.responseHeaders).some((v) => typeof v !== "string")) {
+          problems.push(`${at}.responseHeaders must be a string key-value dictionary`);
+        }
+      }
+      if (r.timeoutMs !== undefined && !positive(r.timeoutMs)) {
+        problems.push(`${at}.timeoutMs must be a positive number`);
       }
     });
   }

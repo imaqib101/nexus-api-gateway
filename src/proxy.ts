@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import http from "node:http";
 import https from "node:https";
 import type { AddressInfo } from "node:net";
@@ -17,6 +18,13 @@ export interface ProxyServerOptions {
   metrics?: Metrics;
   /** Serve /_nexus/health and /_nexus/metrics. On by default. */
   adminEndpoints?: boolean;
+  /**
+   * Request / correlation ID header. Pass `false` to disable automatic propagation.
+   * If an incoming request contains this header, it is forwarded and returned;
+   * otherwise, a UUID is automatically generated.
+   * Default: "x-request-id"
+   */
+  requestIdHeader?: string | false;
 }
 
 export const ADMIN_PREFIX = "/_nexus";
@@ -36,10 +44,17 @@ export class ProxyServer {
   private server: http.Server;
   private breakers = new Map<string, CircuitBreaker>();
   private readonly requestTimeoutMs: number;
+  private readonly requestIdHeader: string | false;
   readonly metrics: Metrics;
 
   constructor(private options: ProxyServerOptions) {
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    this.requestIdHeader =
+      options.requestIdHeader === false
+        ? false
+        : typeof options.requestIdHeader === "string"
+          ? options.requestIdHeader.toLowerCase()
+          : "x-request-id";
     this.metrics = options.metrics ?? new Metrics();
     this.server = http.createServer((req, res) => this.handle(req, res));
   }
@@ -78,8 +93,14 @@ export class ProxyServer {
     const rawUrl = req.url ?? "/";
     const clientIp = req.socket.remoteAddress ?? "unknown";
 
+    let requestId: string | undefined;
+    if (this.requestIdHeader) {
+      const incoming = req.headers[this.requestIdHeader];
+      requestId = (Array.isArray(incoming) ? incoming[0] : incoming) || crypto.randomUUID();
+    }
+
     if (this.options.adminEndpoints !== false && rawUrl.startsWith(ADMIN_PREFIX + "/")) {
-      return this.handleAdmin(rawUrl, res);
+      return this.handleAdmin(rawUrl, res, requestId);
     }
 
     const startedAt = Date.now();
@@ -95,25 +116,30 @@ export class ProxyServer {
       });
     } catch (err) {
       record(err instanceof GatewayError ? err.statusCode : 500);
-      return this.sendError(res, err);
+      return this.sendError(res, err, requestId);
     }
 
     const breaker = this.getBreaker(target);
     if (!breaker.canExecute()) {
       record(503, target);
-      return this.sendJson(res, 503, { error: `Circuit open for ${target}`, code: "CIRCUIT_OPEN" });
+      const extra: Record<string, string> = {};
+      if (this.requestIdHeader && requestId) extra[this.requestIdHeader] = requestId;
+      return this.sendJson(res, 503, { error: `Circuit open for ${target}`, code: "CIRCUIT_OPEN" }, extra);
     }
 
     const route = this.options.gateway.findRoute(rawUrl);
     const upstreamPath = route ? this.options.gateway.rewritePath(rawUrl, route) : rawUrl;
-    this.forward(req, res, target, upstreamPath, clientIp, breaker, record, route);
+    this.forward(req, res, target, upstreamPath, clientIp, breaker, record, route, requestId);
   }
 
-  private handleAdmin(rawUrl: string, res: http.ServerResponse): void {
+  private handleAdmin(rawUrl: string, res: http.ServerResponse, requestId?: string): void {
     const path = rawUrl.split("?")[0];
     const gw = this.options.gateway;
+    const adminHeaders: Record<string, string> = {};
+    if (this.requestIdHeader && requestId) adminHeaders[this.requestIdHeader] = requestId;
+
     if (path === ADMIN_PREFIX + "/health") {
-      return this.sendJson(res, 200, { status: "ok", routes: gw.getRoutes().length });
+      return this.sendJson(res, 200, { status: "ok", routes: gw.getRoutes().length }, adminHeaders);
     }
     if (path === ADMIN_PREFIX + "/metrics") {
       const targets = new Set<string>();
@@ -125,10 +151,14 @@ export class ProxyServer {
         if (!gw.isTargetHealthy(t)) unhealthyTargets.push(t);
       }
       const body = this.metrics.render({ activeConnections, unhealthyTargets });
-      res.writeHead(200, { "content-type": "text/plain; version=0.0.4", "content-length": Buffer.byteLength(body) });
+      res.writeHead(200, {
+        "content-type": "text/plain; version=0.0.4",
+        "content-length": Buffer.byteLength(body),
+        ...adminHeaders
+      });
       return void res.end(body);
     }
-    this.sendJson(res, 404, { error: "Unknown admin endpoint", code: "NO_ROUTE" });
+    this.sendJson(res, 404, { error: "Unknown admin endpoint", code: "NO_ROUTE" }, adminHeaders);
   }
 
   private forward(
@@ -139,7 +169,8 @@ export class ProxyServer {
     clientIp: string,
     breaker: CircuitBreaker,
     record: (status: number, target?: string) => void,
-    route?: RouteRule
+    route?: RouteRule,
+    requestId?: string
   ): void {
     const gw = this.options.gateway;
     const base = new URL(target);
@@ -154,6 +185,9 @@ export class ProxyServer {
       for (const [key, value] of Object.entries(route.customHeaders)) {
         headers[key.toLowerCase()] = value;
       }
+    }
+    if (this.requestIdHeader && requestId) {
+      headers[this.requestIdHeader] = requestId;
     }
     headers.host = base.host;
     const inboundFor = this.options.trustProxy ? req.headers["x-forwarded-for"] : undefined;
@@ -176,6 +210,7 @@ export class ProxyServer {
       }
     };
 
+    const effectiveTimeoutMs = route?.timeoutMs ?? this.requestTimeoutMs;
     const upstream = transport.request(
       {
         protocol: base.protocol,
@@ -184,12 +219,20 @@ export class ProxyServer {
         method: req.method,
         path: basePath + upstreamPath,
         headers,
-        timeout: this.requestTimeoutMs
+        timeout: effectiveTimeoutMs
       },
       (upRes) => {
         const outHeaders: http.OutgoingHttpHeaders = {};
         for (const [key, value] of Object.entries(upRes.headers)) {
           if (!HOP_BY_HOP.has(key)) outHeaders[key] = value;
+        }
+        if (route?.responseHeaders) {
+          for (const [key, value] of Object.entries(route.responseHeaders)) {
+            outHeaders[key.toLowerCase()] = value;
+          }
+        }
+        if (this.requestIdHeader && requestId) {
+          outHeaders[this.requestIdHeader] = requestId;
         }
         record(upRes.statusCode ?? 502, target);
         res.writeHead(upRes.statusCode ?? 502, outHeaders);
@@ -206,12 +249,16 @@ export class ProxyServer {
       settle(false);
       upstream.destroy(new Error("upstream timeout"));
       record(504, target);
-      this.sendJson(res, 504, { error: `Upstream timed out: ${target}`, code: "UPSTREAM_TIMEOUT" });
+      const extra: Record<string, string> = {};
+      if (this.requestIdHeader && requestId) extra[this.requestIdHeader] = requestId;
+      this.sendJson(res, 504, { error: `Upstream timed out: ${target}`, code: "UPSTREAM_TIMEOUT" }, extra);
     });
     upstream.on("error", () => {
       if (!settled) record(502, target);
       settle(false);
-      this.sendJson(res, 502, { error: `Upstream unreachable: ${target}`, code: "BAD_GATEWAY" });
+      const extra: Record<string, string> = {};
+      if (this.requestIdHeader && requestId) extra[this.requestIdHeader] = requestId;
+      this.sendJson(res, 502, { error: `Upstream unreachable: ${target}`, code: "BAD_GATEWAY" }, extra);
     });
 
     // Client went away before the upstream answered: release the slot without blaming the target.
@@ -226,15 +273,18 @@ export class ProxyServer {
     req.pipe(upstream);
   }
 
-  private sendError(res: http.ServerResponse, err: unknown): void {
+  private sendError(res: http.ServerResponse, err: unknown, requestId?: string): void {
+    const extra: Record<string, string> = {};
+    if (this.requestIdHeader && requestId) {
+      extra[this.requestIdHeader] = requestId;
+    }
     if (err instanceof GatewayError) {
-      const extra: Record<string, string> = {};
       if (err instanceof RateLimitError) {
         extra["retry-after"] = String(Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
       }
       return this.sendJson(res, err.statusCode, { error: err.message, code: err.code }, extra);
     }
-    this.sendJson(res, 500, { error: "Internal gateway error", code: "INTERNAL" });
+    this.sendJson(res, 500, { error: "Internal gateway error", code: "INTERNAL" }, extra);
   }
 
   private sendJson(
