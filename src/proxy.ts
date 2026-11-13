@@ -3,7 +3,7 @@ import http from "node:http";
 import https from "node:https";
 import type { AddressInfo } from "node:net";
 import { CircuitBreaker, type CircuitBreakerOptions } from "./circuitBreaker";
-import { GatewayError, NexusGateway, RateLimitError, type RouteRule } from "./gateway";
+import { GatewayError, MethodNotAllowedError, NexusGateway, RateLimitError, type RouteRule } from "./gateway";
 import { Metrics } from "./metrics";
 
 export interface ProxyServerOptions {
@@ -104,7 +104,8 @@ export class ProxyServer {
     }
 
     const startedAt = Date.now();
-    const routeLabel = this.options.gateway.findRoute(rawUrl)?.pathPrefix ?? "unmatched";
+    const route = this.options.gateway.findRoute(rawUrl, req.method);
+    const routeLabel = route?.pathPrefix ?? "unmatched";
     const record = (status: number, target?: string) =>
       this.metrics.observe({ route: routeLabel, target, status, durationMs: Date.now() - startedAt });
 
@@ -112,6 +113,7 @@ export class ProxyServer {
     try {
       target = this.options.gateway.routeRequest(rawUrl, {
         clientIp,
+        method: req.method,
         headers: req.headers
       });
     } catch (err) {
@@ -127,7 +129,6 @@ export class ProxyServer {
       return this.sendJson(res, 503, { error: `Circuit open for ${target}`, code: "CIRCUIT_OPEN" }, extra);
     }
 
-    const route = this.options.gateway.findRoute(rawUrl);
     const upstreamPath = route ? this.options.gateway.rewritePath(rawUrl, route) : rawUrl;
     this.forward(req, res, target, upstreamPath, clientIp, breaker, record, route, requestId);
   }
@@ -281,6 +282,9 @@ export class ProxyServer {
     if (err instanceof GatewayError) {
       if (err instanceof RateLimitError) {
         extra["retry-after"] = String(Math.max(1, Math.ceil(err.retryAfterMs / 1000)));
+      }
+      if (err instanceof MethodNotAllowedError) {
+        extra["allow"] = err.allowedMethods.join(", ");
       }
       return this.sendJson(res, err.statusCode, { error: err.message, code: err.code }, extra);
     }

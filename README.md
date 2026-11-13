@@ -123,13 +123,14 @@ new HealthChecker({ gateway, path: "/health" }).start();
 | Condition | Response |
 | :--- | :--- |
 | No matching route | `404 NO_ROUTE` |
+| Method not permitted | `405 METHOD_NOT_ALLOWED` + `Allow` header |
 | Rate limit hit | `429 RATE_LIMITED` + `Retry-After` |
 | All targets ejected | `503 NO_HEALTHY_TARGET` |
 | Target circuit open | `503 CIRCUIT_OPEN` |
 | Upstream unreachable | `502 BAD_GATEWAY` |
 | Upstream timeout | `504 UPSTREAM_TIMEOUT` |
 
-Routing uses **longest-prefix match** on path segment boundaries, so `/api/v1/inference` wins over `/api`, and `/apiary` does not match `/api`.
+Routing uses **longest-prefix match** on path segment boundaries, and optionally segregates traffic by **HTTP method** (`methods: ["GET", "POST"]`), enabling CQRS read/write splitting on identical path prefixes while returning RFC-compliant `405 Method Not Allowed` with `Allow` headers for unpermitted methods.
 
 **Admin endpoints** (disable with `adminEndpoints: false`): `GET /_nexus/health`, `GET /_nexus/metrics` (Prometheus text format: request counts by route/target/status, latency histogram, active connections, ejected targets).
 

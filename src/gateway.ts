@@ -32,6 +32,7 @@ export interface RouteRule {
   customHeaders?: Record<string, string>;
   responseHeaders?: Record<string, string>;
   timeoutMs?: number;
+  methods?: string[];
 }
 
 export class GatewayError extends Error {
@@ -48,6 +49,20 @@ export class GatewayError extends Error {
 export class NoRouteError extends GatewayError {
   constructor(path: string) {
     super(`No route found for path: ${path}`, 404, "NO_ROUTE");
+  }
+}
+
+export class MethodNotAllowedError extends GatewayError {
+  constructor(
+    readonly path: string,
+    readonly method: string,
+    readonly allowedMethods: string[]
+  ) {
+    super(
+      `Method ${method} not allowed for path: ${path}. Allowed methods: ${allowedMethods.join(", ")}`,
+      405,
+      "METHOD_NOT_ALLOWED"
+    );
   }
 }
 
@@ -69,7 +84,20 @@ export class NoHealthyTargetError extends GatewayError {
 export interface RouteRequestOptions {
   clientIp?: string;
   sessionKey?: string;
+  method?: string;
   headers?: Record<string, string | string[] | undefined>;
+}
+
+function methodsOverlap(a?: string[], b?: string[]): boolean {
+  if (!a || a.length === 0 || !b || b.length === 0) return true;
+  const setA = new Set(a.map((m) => m.toUpperCase()));
+  return b.some((m) => setA.has(m.toUpperCase()));
+}
+
+function routeKey(rule: RouteRule): string {
+  if (!rule.methods || rule.methods.length === 0) return rule.pathPrefix;
+  const sorted = rule.methods.map((m) => m.toUpperCase()).sort().join(",");
+  return `${sorted}:${rule.pathPrefix}`;
 }
 
 export class NexusGateway {
@@ -91,32 +119,45 @@ export class NexusGateway {
     if (!rule.pathPrefix.startsWith("/")) {
       throw new Error(`pathPrefix must start with "/": ${rule.pathPrefix}`);
     }
-    if (this.routes.some((r) => r.pathPrefix === rule.pathPrefix)) {
+    if (this.routes.some((r) => r.pathPrefix === rule.pathPrefix && methodsOverlap(r.methods, rule.methods))) {
       throw new Error(`Route already registered for prefix: ${rule.pathPrefix}`);
     }
     this.routes.push(rule);
     const normalized = rule.targets.map(normalizeTarget);
+    const key = routeKey(rule);
 
     if (rule.rateLimit) {
-      this.rateLimiters.set(rule.pathPrefix, new TokenBucketRateLimiter(rule.rateLimit));
+      this.rateLimiters.set(key, new TokenBucketRateLimiter(rule.rateLimit));
     }
 
     // Initialize consistent hash ring if needed
     if (rule.strategy === "ip-hash") {
       const hasher = new ConsistentHashBalancer();
       hasher.updateTargets(normalized.map((t) => t.url));
-      this.hashBalancers.set(rule.pathPrefix, hasher);
+      this.hashBalancers.set(key, hasher);
     }
   }
 
-  removeRoute(pathPrefix: string): boolean {
+  removeRoute(pathPrefix: string, method?: string): boolean {
     const before = this.routes.length;
-    this.routes = this.routes.filter((r) => r.pathPrefix !== pathPrefix);
-    this.rateLimiters.delete(pathPrefix);
-    this.roundRobinBalancers.delete(pathPrefix);
-    this.weightedBalancers.delete(pathPrefix);
-    this.hashBalancers.delete(pathPrefix);
-    this.canaryBalancers.delete(pathPrefix);
+    const removedKeys: string[] = [];
+    this.routes = this.routes.filter((r) => {
+      if (r.pathPrefix !== pathPrefix) return true;
+      if (method && r.methods && r.methods.length > 0) {
+        const matchesMethod = r.methods.some((m) => m.toUpperCase() === method.toUpperCase());
+        if (!matchesMethod) return true;
+      }
+      removedKeys.push(routeKey(r));
+      return false;
+    });
+
+    for (const key of removedKeys) {
+      this.rateLimiters.delete(key);
+      this.roundRobinBalancers.delete(key);
+      this.weightedBalancers.delete(key);
+      this.hashBalancers.delete(key);
+      this.canaryBalancers.delete(key);
+    }
     return this.routes.length < before;
   }
 
@@ -125,13 +166,17 @@ export class NexusGateway {
   }
 
   /**
-   * Longest-prefix match on path segment boundaries, so "/api" matches
-   * "/api" and "/api/users" but not "/apiary".
+   * Longest-prefix match on path segment boundaries, optionally filtering by HTTP method.
    */
-  findRoute(path: string): RouteRule | undefined {
+  findRoute(path: string, method?: string): RouteRule | undefined {
     let best: RouteRule | undefined;
+    const upperMethod = method?.toUpperCase();
     for (const r of this.routes) {
       if (!matchesPrefix(path, r.pathPrefix)) continue;
+      if (upperMethod && r.methods && r.methods.length > 0) {
+        const matchesMethod = r.methods.some((m) => m.toUpperCase() === upperMethod);
+        if (!matchesMethod) continue;
+      }
       if (!best || r.pathPrefix.length > best.pathPrefix.length) best = r;
     }
     return best;
@@ -159,8 +204,19 @@ export class NexusGateway {
     return !this.unhealthyTargets.has(targetUrl);
   }
 
-  getRateLimiter(pathPrefix: string): TokenBucketRateLimiter | undefined {
-    return this.rateLimiters.get(pathPrefix);
+  getRateLimiter(pathPrefix: string, method?: string): TokenBucketRateLimiter | undefined {
+    if (method) {
+      const upper = method.toUpperCase();
+      for (const [key, limiter] of this.rateLimiters.entries()) {
+        if (key.endsWith(`:${pathPrefix}`) && key.split(":")[0].split(",").includes(upper)) {
+          return limiter;
+        }
+      }
+    }
+    return (
+      this.rateLimiters.get(pathPrefix) ??
+      Array.from(this.rateLimiters.entries()).find(([k]) => k.endsWith(`:${pathPrefix}`))?.[1]
+    );
   }
 
   incrementActiveConnections(targetUrl: string): void {
@@ -189,14 +245,53 @@ export class NexusGateway {
   }
 
   routeRequest(path: string, options: RouteRequestOptions = {}): string {
-    const route = this.findRoute(path);
+    const candidateRoutes = this.routes.filter((r) => matchesPrefix(path, r.pathPrefix));
+    if (candidateRoutes.length === 0) {
+      throw new NoRouteError(path);
+    }
+
+    let route: RouteRule | undefined;
+    if (options.method) {
+      const upperMethod = options.method.toUpperCase();
+      const methodCandidates = candidateRoutes.filter(
+        (r) => !r.methods || r.methods.length === 0 || r.methods.some((m) => m.toUpperCase() === upperMethod)
+      );
+
+      if (methodCandidates.length === 0) {
+        const allowedMethods = Array.from(
+          new Set(
+            candidateRoutes
+              .flatMap((r) => r.methods || [])
+              .map((m) => m.toUpperCase())
+          )
+        );
+        if (allowedMethods.length > 0) {
+          throw new MethodNotAllowedError(path, options.method, allowedMethods);
+        }
+      }
+
+      for (const r of methodCandidates) {
+        if (!route || r.pathPrefix.length > route.pathPrefix.length) {
+          route = r;
+        }
+      }
+    } else {
+      for (const r of candidateRoutes) {
+        if (!route || r.pathPrefix.length > route.pathPrefix.length) {
+          route = r;
+        }
+      }
+    }
+
     if (!route || route.targets.length === 0) {
       throw new NoRouteError(path);
     }
 
+    const key = routeKey(route);
+
     // Check rate limit if configured
     if (route.rateLimit) {
-      const limiter = this.rateLimiters.get(route.pathPrefix);
+      const limiter = this.rateLimiters.get(key);
       const clientKey = options.clientIp ?? "global";
       const check = limiter?.consume(clientKey);
       if (check && !check.allowed) {
@@ -215,10 +310,10 @@ export class NexusGateway {
 
     switch (strategy) {
       case "weighted-round-robin": {
-        let balancer = this.weightedBalancers.get(route.pathPrefix);
+        let balancer = this.weightedBalancers.get(key);
         if (!balancer) {
           balancer = new WeightedRoundRobinBalancer();
-          this.weightedBalancers.set(route.pathPrefix, balancer);
+          this.weightedBalancers.set(key, balancer);
         }
         return balancer.select(healthyTargets);
       }
@@ -231,11 +326,11 @@ export class NexusGateway {
       }
 
       case "ip-hash": {
-        let balancer = this.hashBalancers.get(route.pathPrefix);
+        let balancer = this.hashBalancers.get(key);
         if (!balancer) {
           balancer = new ConsistentHashBalancer();
           balancer.updateTargets(healthyTargets.map((t) => t.url));
-          this.hashBalancers.set(route.pathPrefix, balancer);
+          this.hashBalancers.set(key, balancer);
         }
         const clientKey = options.clientIp || options.sessionKey || "default_client";
         return balancer.select(clientKey);
@@ -256,7 +351,7 @@ export class NexusGateway {
       }
 
       case "canary": {
-        let balancer = this.canaryBalancers.get(route.pathPrefix);
+        let balancer = this.canaryBalancers.get(key);
         if (!balancer) {
           const stable = healthyTargets[0].url;
           const canary = healthyTargets.length > 1 ? healthyTargets[1].url : stable;
@@ -266,7 +361,7 @@ export class NexusGateway {
             canaryWeightPercent: route.canaryPercent ?? 10,
             canaryHeaderKey: route.canaryHeaderKey ?? "x-canary"
           });
-          this.canaryBalancers.set(route.pathPrefix, balancer);
+          this.canaryBalancers.set(key, balancer);
         }
         return balancer.select({
           headers: options.headers,
@@ -276,10 +371,10 @@ export class NexusGateway {
 
       case "round-robin":
       default: {
-        let balancer = this.roundRobinBalancers.get(route.pathPrefix);
+        let balancer = this.roundRobinBalancers.get(key);
         if (!balancer) {
           balancer = new RoundRobinBalancer();
-          this.roundRobinBalancers.set(route.pathPrefix, balancer);
+          this.roundRobinBalancers.set(key, balancer);
         }
         return balancer.select(healthyTargets.map((t) => t.url));
       }
@@ -293,7 +388,7 @@ export class NexusGateway {
           .map(normalizeTarget)
           .filter((t) => !this.unhealthyTargets.has(t.url))
           .map((t) => t.url);
-        const balancer = this.hashBalancers.get(route.pathPrefix);
+        const balancer = this.hashBalancers.get(routeKey(route));
         if (balancer) {
           balancer.updateTargets(healthy);
         }

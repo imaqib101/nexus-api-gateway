@@ -118,6 +118,15 @@ export function parseConfig(raw: unknown): NexusConfig {
       if (r.timeoutMs !== undefined && !positive(r.timeoutMs)) {
         problems.push(`${at}.timeoutMs must be a positive number`);
       }
+      if (r.methods !== undefined) {
+        if (
+          !Array.isArray(r.methods) ||
+          r.methods.length === 0 ||
+          r.methods.some((m) => typeof m !== "string" || m.trim() === "")
+        ) {
+          problems.push(`${at}.methods must be a non-empty array of HTTP method strings`);
+        }
+      }
     });
   }
 
