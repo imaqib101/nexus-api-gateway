@@ -87,6 +87,34 @@ console.log(`Routed to: ${backend}`);
 
 ---
 
+## ⏱️ Rate Limiting Engines: Token Bucket & Sliding Window
+
+Nexus API Gateway ships with both **Token Bucket** (for burst control) and **Sliding Window Log** (for smooth request quotas over rolling time windows) rate limiters:
+
+```typescript
+import { TokenBucketRateLimiter, SlidingWindowRateLimiter } from "nexus-api-gateway";
+
+// 1. Token Bucket: burst capacity + refill rate
+const tokenBucket = new TokenBucketRateLimiter({
+  capacity: 100,
+  refillRatePerSec: 20
+});
+const tbResult = tokenBucket.consume("client-ip-1"); // { allowed: true, remainingTokens: 99 }
+
+// 2. Sliding Window: max requests per sliding millisecond window
+const slidingWindow = new SlidingWindowRateLimiter({
+  windowMs: 60_000, // 1 minute rolling window
+  maxRequests: 100
+});
+const swResult = slidingWindow.consume("user-api-key"); // { allowed: true, remainingRequests: 99, resetMs: 59980 }
+
+// Reclaim memory in long-running processes
+tokenBucket.prune(3600_000); // prunes buckets idle for > 1 hour
+slidingWindow.prune();       // prunes completely expired windows
+```
+
+---
+
 ## 🛡️ Health Checking & Fault Tolerance
 
 ```typescript
