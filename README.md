@@ -164,6 +164,38 @@ Routing uses **longest-prefix match** on path segment boundaries, and optionally
 
 ---
 
+## 🔒 Safe Retries & Idempotency Store
+
+Enterprise API gateways require safe retry semantics for mutating endpoints (payments, order dispatch, LLM calls). `IdempotencyStore` guarantees exactly-once processing with SHA-256 request payload fingerprinting:
+
+```typescript
+import { IdempotencyStore } from "nexus-api-gateway";
+
+const store = new IdempotencyStore({ ttlMs: 300_000 }); // 5 minutes TTL
+
+const idempotencyKey = req.headers["idempotency-key"];
+const fingerprint = IdempotencyStore.generateFingerprint(req.method, req.url, reqBody);
+
+const result = store.acquire(idempotencyKey, fingerprint);
+
+if (result.state === "in-progress") {
+  // Reject concurrent duplicate request
+  res.writeHead(409).end(JSON.stringify({ error: "Request in progress", code: "IDEMPOTENCY_IN_PROGRESS" }));
+} else if (result.state === "mismatch") {
+  // Reject key reuse with different payload
+  res.writeHead(422).end(JSON.stringify({ error: "Payload mismatch for idempotency key", code: "IDEMPOTENCY_MISMATCH" }));
+} else if (result.state === "cached") {
+  // Safely replay previous response without calling upstream
+  res.writeHead(result.record.statusCode, { ...result.record.headers, "idempotent-replayed": "true" });
+  res.end(result.record.body);
+} else {
+  // Acquired: forward to upstream and cache response upon completion
+  store.complete(idempotencyKey, upstreamStatus, upstreamHeaders, upstreamBody);
+}
+```
+
+---
+
 ## 🧪 Testing
 
 ```bash
