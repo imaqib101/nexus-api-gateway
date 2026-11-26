@@ -7,3 +7,4 @@ export * from "./metrics";
 export * from "./config";
 export * from "./healthChecker";
 export * from "./idempotency";
+export * from "./cache";
